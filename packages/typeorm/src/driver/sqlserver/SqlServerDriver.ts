@@ -212,6 +212,18 @@ export class SqlServerDriver implements Driver {
     ]
 
     /**
+     * Gets list of column data types that support collation by a driver.
+     */
+    withCollationColumnTypes: ColumnType[] = [
+        "char",
+        "varchar",
+        "text",
+        "nchar",
+        "nvarchar",
+        "ntext",
+    ]
+
+    /**
      * Gets list of column data types that support precision by a driver.
      */
     withPrecisionColumnTypes: ColumnType[] = [
@@ -1047,11 +1059,12 @@ export class SqlServerDriver implements Driver {
             type: physicalColumn.type,
         })
         if (physicalColumn.length) {
-            return new MssqlParameter(
-                value,
-                normalizedType as any,
-                physicalColumn.length as any,
-            )
+            // MssqlParameter takes a numeric length; "max" maps to mssql's MAX.
+            const length =
+                physicalColumn.length.toLowerCase() === "max"
+                    ? this.mssql.MAX
+                    : Number(physicalColumn.length)
+            return new MssqlParameter(value, normalizedType as any, length)
         } else if (
             physicalColumn.precision !== null &&
             physicalColumn.precision !== undefined &&

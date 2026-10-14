@@ -38,14 +38,6 @@ const mysqlCharacterTypes = new Set<ColumnType>([
     "set",
 ])
 
-// Collatable types accepted by PostgresDriver after alias normalization.
-const postgresCollatableTypes = new Set<ColumnType>([
-    "character",
-    "character varying",
-    "text",
-    "citext",
-])
-
 /**
  * This metadata contains all information about entity's column.
  */
@@ -107,6 +99,23 @@ export class ColumnMetadata {
     resolveDriverColumn(driver: Driver): ColumnMetadata {
         const override = this.dialectTypes?.[driver.options.type]
         if (override === undefined) return this
+        // Query builders resolve once per column and row; reuse the projection.
+        const cached = this.resolvedDriverColumns.get(driver)
+        if (cached?.override === override) return cached.column
+        const column = this.projectDriverColumn(driver, override)
+        this.resolvedDriverColumns.set(driver, { override, column })
+        return column
+    }
+
+    private resolvedDriverColumns = new WeakMap<
+        Driver,
+        { override: string; column: ColumnMetadata }
+    >()
+
+    private projectDriverColumn(
+        driver: Driver,
+        override: string,
+    ): ColumnMetadata {
         if (!override.trim()) {
             throw new TypeORMError(
                 `Column "${this.propertyName}" has an empty dialectTypes override for "${driver.options.type}"`,
@@ -183,9 +192,8 @@ export class ColumnMetadata {
                 }
             }
             if (
-                (driver.options.type === "postgres" ||
-                    driver.options.type === "aurora-postgres") &&
-                !postgresCollatableTypes.has(normalizedType)
+                driver.withCollationColumnTypes?.includes(normalizedType) ===
+                false
             )
                 physical.collation = undefined
         }
@@ -1154,6 +1162,7 @@ export class ColumnMetadata {
     // ---------------------------------------------------------------------
 
     build(dataSource: DataSource): this {
+        this.resolvedDriverColumns = new WeakMap()
         this.propertyPath = this.buildPropertyPath()
         this.propertyAliasName = this.propertyPath.replace(".", "_")
         this.databaseName = this.buildDatabaseName(dataSource)
